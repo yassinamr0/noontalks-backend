@@ -5,213 +5,257 @@ require('dotenv').config();
 
 const app = express();
 
-// CORS configuration
-const allowedOrigins = ['https://www.noon-talks.online', 'http://localhost:5173'];
-
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.header('Access-Control-Allow-Credentials', 'true');
-  }
-
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
-
+// Middleware
 app.use(express.json());
+app.use(cors());
 
-// Add root route
-app.get('/', (req, res) => {
-  res.json({ message: 'NoonTalks Backend API is running' });
-});
+// Constants
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'noon2024';
+const PORT = process.env.PORT || 5000;
 
-// Admin token
-const ADMIN_TOKEN = 'noontalks2024';
-
-// Admin authentication middleware
-const adminAuth = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'No authorization header' });
-  }
-
-  const token = authHeader.split(' ')[1];
-  if (token !== ADMIN_TOKEN) {
-    return res.status(401).json({ message: 'Invalid admin token' });
-  }
-
-  next();
-};
+// MongoDB URI construction
+const MONGODB_URI = `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@${process.env.MONGO_HOST}/${process.env.MONGO_DB}`;
 
 // MongoDB connection
-const mongoUrl = `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@${process.env.MONGO_HOST}/${process.env.MONGO_DB}`;
-mongoose.connect(mongoUrl)
-  .then(() => console.log("MongoDB connected"))
-  .catch(err => console.error("MongoDB connection error:", err));
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch((err) => console.error('MongoDB connection error:', err));
 
 // User Schema
 const userSchema = new mongoose.Schema({
   name: String,
   email: String,
-  phone: String,
-  code: { type: String, unique: true },
-  registeredAt: { type: Date, default: Date.now },
-  entries: { type: Number, default: 0 }
+  code: { type: String, required: true, unique: true },
+  entries: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now }
 });
 
 const User = mongoose.model('User', userSchema);
 
-// Valid Codes Schema
-const validCodeSchema = new mongoose.Schema({
-  code: { type: String, unique: true },
-  createdAt: { type: Date, default: Date.now }
-});
-
-const ValidCode = mongoose.model('ValidCode', validCodeSchema);
-
-// Function to generate a random code
-function generateCode(length = 6) {
-  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < length; i++) {
-    code += characters.charAt(Math.floor(Math.random() * characters.length));
+// Admin middleware
+const adminAuth = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  
+  if (!token || token !== ADMIN_TOKEN) {
+    return res.status(401).json({ 
+      error: 'Unauthorized',
+      message: 'Invalid or missing token'
+    });
   }
+  
+  next();
+};
+
+// Generate code
+async function generateCode(length = 6) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code;
+  do {
+    code = Array.from(
+      { length }, 
+      () => chars[Math.floor(Math.random() * chars.length)]
+    ).join('');
+  } while (await User.findOne({ code }));
+  
   return code;
 }
 
-// Function to generate unique codes
-async function generateUniqueCodes(count) {
-  const codes = new Set();
-  const existingCodes = new Set((await ValidCode.find({}, 'code')).map(doc => doc.code));
-  
-  while (codes.size < count) {
-    const code = generateCode();
-    if (!existingCodes.has(code) && !codes.has(code)) {
-      codes.add(code);
-    }
-  }
-  
-  return Array.from(codes);
-}
-
 // Routes
-app.get('/api/users', adminAuth, async (req, res) => {
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// Admin routes
+app.post('/admin/login', async (req, res) => {
   try {
-    const users = await User.find().sort({ registeredAt: -1 });
+    const { password } = req.body;
+    
+    if (!password) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Password is required'
+      });
+    }
+
+    if (password !== ADMIN_TOKEN) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Invalid password'
+      });
+    }
+
+    res.json({
+      message: 'Login successful',
+      token: ADMIN_TOKEN
+    });
+  } catch (error) {
+    console.error('Admin login error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+});
+
+app.post('/admin/generate-codes', adminAuth, async (req, res) => {
+  try {
+    const count = Math.min(parseInt(req.query.count) || 1, 100);
+    const codes = [];
+    
+    for (let i = 0; i < count; i++) {
+      const code = await generateCode();
+      await User.create({ code });
+      codes.push(code);
+    }
+    
+    res.json({
+      message: `Generated ${codes.length} codes`,
+      codes
+    });
+  } catch (error) {
+    console.error('Generate codes error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+});
+
+app.get('/admin/users', adminAuth, async (req, res) => {
+  try {
+    const users = await User.find().sort('-createdAt');
     res.json(users);
   } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-app.post('/api/users/register', async (req, res) => {
-  try {
-    const { name, email, phone, code } = req.body;
-    const upperCode = code.toUpperCase();
-
-    // Check if code exists
-    const validCode = await ValidCode.findOne({ code: upperCode });
-    if (!validCode) {
-      return res.status(400).json({ message: 'Invalid registration code' });
-    }
-
-    // Check if code is already used
-    const existingUser = await User.findOne({ code: upperCode });
-    if (existingUser) {
-      return res.status(400).json({ message: 'Code already used' });
-    }
-
-    // Create new user
-    const newUser = new User({
-      name,
-      email,
-      phone,
-      code: upperCode,
-      entries: 0
+    console.error('Get users error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
     });
-
-    // Save user
-    await newUser.save();
-
-    // Remove used code
-    await ValidCode.deleteOne({ code: upperCode });
-
-    res.json(newUser);
-  } catch (error) {
-    console.error('Error registering user:', error);
-    res.status(500).json({ message: error.message });
   }
 });
 
-app.post('/api/users/login', async (req, res) => {
+// User routes
+app.post('/register', async (req, res) => {
   try {
-    const { code } = req.body;
-    const user = await User.findOne({ code: code.toUpperCase() });
+    const { name, email, code } = req.body;
+
+    if (!name || !email || !code) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Name, email, and code are required'
+      });
+    }
+
+    const user = await User.findOne({ code });
     
     if (!user) {
-      return res.status(400).json({ message: 'Invalid code' });
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Invalid code'
+      });
+    }
+
+    if (user.name || user.email) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Code already used'
+      });
+    }
+
+    user.name = name;
+    user.email = email;
+    await user.save();
+
+    res.json({
+      message: 'Registration successful',
+      user
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
+  }
+});
+
+app.post('/login', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Code is required'
+      });
+    }
+
+    const user = await User.findOne({ code });
+    
+    if (!user || !user.name) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Invalid code or user not registered'
+      });
     }
 
     res.json(user);
   } catch (error) {
-    console.error('Error logging in:', error);
-    res.status(500).json({ message: error.message });
+    console.error('Login error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message
+    });
   }
 });
 
-app.post('/api/users/scan', async (req, res) => {
+app.post('/admin/scan', adminAuth, async (req, res) => {
   try {
     const { code } = req.body;
-    const user = await User.findOne({ code: code.toUpperCase() });
+
+    if (!code) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Code is required'
+      });
+    }
+
+    const user = await User.findOne({ code });
     
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid code' });
+    if (!user || !user.name) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Invalid code or user not registered',
+        isValid: false
+      });
     }
 
     user.entries += 1;
     await user.save();
 
-    res.json(user);
+    res.json({
+      message: 'Ticket scanned successfully',
+      isValid: true,
+      user
+    });
   } catch (error) {
-    console.error('Error scanning ticket:', error);
-    res.status(500).json({ message: error.message });
+    console.error('Scan error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: error.message,
+      isValid: false
+    });
   }
 });
 
-app.post('/api/codes/generate', adminAuth, async (req, res) => {
-  try {
-    const { count = 1 } = req.body;
-    
-    if (!Number.isInteger(count) || count < 1 || count > 100) {
-      return res.status(400).json({ message: 'Please enter a valid count between 1 and 100' });
-    }
-
-    const generatedCodes = await generateUniqueCodes(count);
-    const validCodes = generatedCodes.map(code => ({ code }));
-    
-    await ValidCode.insertMany(validCodes);
-    res.json({ codes: generatedCodes, message: 'Codes generated successfully' });
-  } catch (error) {
-    console.error('Error generating codes:', error);
-    res.status(500).json({ message: error.message });
-  }
+// Error middleware
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: err.message
+  });
 });
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
-const port = process.env.PORT || 5000;
-app.listen(port, () => {
-  console.log(`Server is running on port: ${port}`);
-});
+// Export for Vercel
+module.exports = app;

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h2>Test API Endpoints</h2>
+    <button onclick="testUsers()">Test /users endpoint</button>
+    <button onclick="testGenerateCodes()">Test /codes/generate endpoint</button>
+    <pre id="result"></pre>
+
+    <script>
+        const API_URL = 'https://noontalks-backend.vercel.app';
+        const ADMIN_TOKEN = 'noontalks2024';
+
+        async function makeRequest(method, url, body = null) {
+            const options = {
+                method: method,
+                mode: 'cors',
+                headers: {
+                    'Authorization': `Bearer ${ADMIN_TOKEN}`,
+                    'Content-Type': 'application/json'
+                }
+            };
+
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('Request error:', error);
+                throw error;
+            }
+        }
+
+        async function testUsers() {
+            try {
+                document.getElementById('result').textContent = 'Loading...';
+                const data = await makeRequest('GET', `${API_URL}/users`);
+                document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('result').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function testGenerateCodes() {
+            try {
+                document.getElementById('result').textContent = 'Loading...';
+                const data = await makeRequest('POST', `${API_URL}/codes/generate`, { count: 5 });
+                document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('result').textContent = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>
