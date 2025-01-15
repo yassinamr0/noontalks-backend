@@ -71,15 +71,22 @@ app.post('/admin/login', (req, res) => {
 
 app.post('/admin/generate-codes', adminAuth, async (req, res) => {
   try {
-    const count = Math.min(parseInt(req.query.count) || 1, 100);
+    const { count } = req.body;
+    const numCodes = Math.min(parseInt(count) || 1, 100);
     const codes = [];
-    for (let i = 0; i < count; i++) {
+    
+    for (let i = 0; i < numCodes; i++) {
       const code = await generateCode();
       await User.create({ code });
       codes.push(code);
     }
-    res.json({ codes });
+    
+    res.json({
+      message: 'Codes generated successfully',
+      codes
+    });
   } catch (error) {
+    console.error('Generate codes error:', error);
     res.status(500).json({ message: error.message });
   }
 });
