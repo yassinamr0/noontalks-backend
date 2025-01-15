@@ -7,9 +7,10 @@ const app = express();
 
 // Basic middleware
 app.use(cors({
-  origin: '*',  // Temporarily allow all origins for testing
-  methods: 'GET,POST,PUT,DELETE,OPTIONS',
-  allowedHeaders: 'Content-Type,Authorization'
+  origin: 'https://www.noon-talks.online',
+  methods: ['GET', 'POST'],
+  credentials: true,
+  optionsSuccessStatus: 200
 }));
 app.use(express.json());
 
