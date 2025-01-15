@@ -60,6 +60,9 @@ async function generateCode(length = 6) {
   return code;
 }
 
+// CORS preflight
+app.options('*', cors());
+
 // Routes
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
