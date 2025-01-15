@@ -47,7 +47,8 @@ const adminAuth = (req, res, next) => {
 };
 
 // MongoDB connection
-mongoose.connect(process.env.MONGODB_URL)
+const mongoUrl = `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@${process.env.MONGO_HOST}/${process.env.MONGO_DB}`;
+mongoose.connect(mongoUrl)
   .then(() => console.log("MongoDB connected"))
   .catch(err => console.error("MongoDB connection error:", err));
 
