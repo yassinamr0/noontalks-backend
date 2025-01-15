@@ -27,6 +27,11 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
+// Add root route
+app.get('/', (req, res) => {
+  res.json({ message: 'NoonTalks Backend API is running' });
+});
+
 // Admin token
 const ADMIN_TOKEN = 'noontalks2024';
 
