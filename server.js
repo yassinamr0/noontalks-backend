@@ -28,10 +28,11 @@ mongoose.connect(MONGODB_URI)
 // User Schema
 const userSchema = new mongoose.Schema({
   name: String,
-  email: String,
-  code: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  phone: String,
   entries: { type: Number, default: 0 },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  lastEntry: Date
 });
 
 const User = mongoose.model('User', userSchema);
@@ -70,6 +71,40 @@ app.post('/admin/login', (req, res) => {
   }
 });
 
+app.post('/admin/add-user', adminAuth, async (req, res) => {
+  try {
+    const { name, email, phone } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User with this email already exists' });
+    }
+
+    const user = await User.create({ name, email, phone });
+    
+    res.json({
+      message: 'User added successfully',
+      user
+    });
+  } catch (error) {
+    console.error('Add user error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+app.get('/admin/users', adminAuth, async (req, res) => {
+  try {
+    const users = await User.find().sort('-createdAt');
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 app.post('/admin/generate-codes', adminAuth, async (req, res) => {
   try {
     const { count } = req.body;
@@ -92,60 +127,53 @@ app.post('/admin/generate-codes', adminAuth, async (req, res) => {
   }
 });
 
-app.get('/admin/users', adminAuth, async (req, res) => {
+app.post('/auth/login', async (req, res) => {
   try {
-    const users = await User.find().sort('-createdAt');
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
 
-// User routes
-app.post('/register', async (req, res) => {
-  try {
-    const { name, email, code } = req.body;
-    const user = await User.findOne({ code });
+    const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: 'Invalid code' });
+      return res.status(401).json({ message: 'User not found' });
     }
-    if (user.name || user.email) {
-      return res.status(400).json({ message: 'Code already used' });
-    }
-    user.name = name;
-    user.email = email;
-    await user.save();
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
 
-app.post('/login', async (req, res) => {
-  try {
-    const { code } = req.body;
-    const user = await User.findOne({ code });
-    if (!user || !user.name) {
-      return res.status(404).json({ message: 'Invalid code or user not registered' });
-    }
-    res.json(user);
+    res.json({ user });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ message: error.message });
   }
 });
 
 app.post('/admin/scan', adminAuth, async (req, res) => {
   try {
-    const { code } = req.body;
-    const user = await User.findOne({ code });
-    if (!user || !user.name) {
-      return res.status(404).json({ message: 'Invalid code or user not registered' });
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.status(404).json({ 
+        isValid: false,
+        message: 'Invalid ticket' 
+      });
     }
+
     user.entries += 1;
+    user.lastEntry = new Date();
     await user.save();
-    res.json({ message: 'Ticket scanned successfully', user });
+
+    res.json({
+      isValid: true,
+      user,
+      message: 'Ticket scanned successfully'
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Scan error:', error);
+    res.status(500).json({ 
+      isValid: false,
+      message: error.message 
+    });
   }
 });
 
