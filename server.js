@@ -5,9 +5,18 @@ require('dotenv').config();
 
 const app = express();
 
+// CORS configuration
+const corsOptions = {
+  origin: ['https://noon-talks.online', 'https://www.noon-talks.online'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  maxAge: 86400 // 24 hours
+};
+
 // Middleware
+app.use(cors(corsOptions));
 app.use(express.json());
-app.use(cors());
 
 // Constants
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'noon2024';
@@ -61,7 +70,7 @@ async function generateCode(length = 6) {
 }
 
 // CORS preflight
-app.options('*', cors());
+app.options('*', cors(corsOptions));
 
 // Routes
 app.get('/health', (req, res) => {
